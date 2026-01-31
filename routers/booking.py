@@ -2,6 +2,7 @@ from typing import Annotated, Optional
 from zoneinfo import ZoneInfo
 
 from pydantic import BaseModel, Field, EmailStr
+from sqlalchemy import select, and_
 from sqlalchemy.orm import Session
 from fastapi import APIRouter, Depends, HTTPException, Path
 from starlette import status
@@ -92,11 +93,21 @@ async def create_booking(db: db_dependency, booking_request: BookingRequest):
         status=booking_request.status
     )
 
+    double_booked = select(Booking.id).where(
+        and_(
+            Booking.date == booking_request.date,
+            Booking.time == booking_request.time,
+            Booking.scheduled_at == scheduled_at_utc
+        )).limit(1)
+
+    double_booked_conflict = db.execute(double_booked).scalar_one_or_none()
+    if double_booked_conflict:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT,
+                            detail='This time slot is book. pleease choose different time slot or date')
+
     db.add(booking)
     db.commit()
     db.refresh(booking)
-
-    print("SAVED date:", booking.date)
     return booking
 
 
